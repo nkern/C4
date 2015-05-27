@@ -1,5 +1,5 @@
 '''
-This file sets the cluster sample from C4 data and creates individual fits files for each cluster
+This file sets the cluster sample from C4 data and does a whole bunch of other stuff w/ the data
 '''
 # Import Modules
 import numpy as np
@@ -10,6 +10,8 @@ from causticpy import Caustic
 import astrostats as astats
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 import DictEZ as ez
+import cPickle as pkl
+from sklearn import linear_model
 
 # Load Data
 # Cluster File
@@ -22,18 +24,17 @@ c4 = c4[sort]
 # Galaxy File
 photo = fits.open('DR12_Photo_AbsMag_Data.fits')[1].data
 dr12 = fits.open('DR12_SpectroPhoto_BestObjID.fits')[1].data
-dr12 = dr12[np.where((dr12['z'] < 0.25)&(dr12['zWarning']==0))]
+dr12 = dr12[np.where((dr12['z'] < 0.27)&(dr12['zWarning']==0))]
 
 # Set Constants
 C = Caustic()
-H0 = 70.0
+H0 = 72.0
 c = 2.99792e5
 Cosmo = cosmo.LambdaCDM(H0,0.3,0.7)
-arcs = np.array(Cosmo.arcsec_per_kpc_proper(c4['z_c4']))*12000. / 3600.    # 12 Mpc in degrees
-data_set = 'DataSet1/'
+data_set = 'DataSet2/'
 keys = ['C','H0','c','Cosmo','data_set']
 varib = ez.create(keys,locals())
-
+root = '/nfs/christoq_ls/nkern'
 
 ## Useful Functions
 def plot3d():
@@ -66,30 +67,61 @@ if cluster_file == True:
 	tbhdu.writeto(data_set+'C4_Halos.fits',clobber=True)
 	raise NameError
 
-# Load Cluster File
+
+
+## Load Previously Sorted Cluster File
 c4 = fits.open(data_set+'C4_Halos.fits')[1].data
 # Get Avg Halo Data
 avg_haloid,avg_ra,avg_dec,avg_z = np.loadtxt('Avg_Halo_Centers.tab',delimiter='\t',unpack=True)
 avg_haloid = np.array(avg_haloid,int)
 
+
+## Load Previously Cut Cluster Sample
+load_cut_sample = True
+if load_cut_sample == True:
+	data_loc = 'individual'
+	print ''
+	print '...Loading in Previously Cut C4 Cluster Sample'
+	f = open(root+'/C4/'+data_loc+'/halo_arrays.pkl','rb')
+	input = pkl.Unpickler(f)
+	run_dict = input.load()
+	globals().update(run_dict)
+	f.close()
+
+
+#blob1 = (np.log10(N200)>2.55)&(np.log10(M200)>14.8)&(np.log10(M200)<15.0)
+#blob2 = (np.log10(N200)>2.4)&(np.log10(M200)>15.2)&(np.log10(M200)<15.4)
+#blob2[np.where(blob2==True)][9] = False
+#blob2[np.where(blob2==True)][11] = False
+#cut_out = ~(blob1+blob2)
+
+
 # Get Cluster Cutouts
 cluster_cut = False
 if cluster_cut == True:
+	arcs = np.array(Cosmo.arcsec_per_kpc_proper(avg_z))*15000. / 3600.    # 15 Mpc in degrees
 	for i in range(len(c4['halo_id'])):
-		print i
-		# Get RA and Dec ranges
-		d_dec = arcs[i]
-		d_ra = arcs[i]/np.cos(c4['dec_c4'][i]*np.pi/180)
+		if np.isnan(avg_z[i]) == True: continue
+		if i%500 == 0: print i
 
 		# Clus Data
-		clus_z = c4['z_c4'][i]
-		clus_ra = c4['ra_c4'][i]
-		clus_dec = c4['dec_c4'][i]
+		#clus_z = c4['z_mean'][i]
+		#clus_ra = c4['ra_c4'][i]
+		#clus_dec = c4['dec_c4'][i]
+
+		clus_ra = avg_ra[i]
+		clus_dec = avg_dec[i]
+		clus_z = avg_z[i]
+
+		# Get RA and Dec ranges
+		d_dec = arcs[i]					# 15 Mpc in Declination 
+		d_ra = arcs[i]/np.cos(clus_dec*np.pi/180)	# 15 Mpc in Declination
+		d_z = 15000 / c * (1+clus_z)			# 15000 km/s in z
 
 		# Create Galaxy Data Cube out of DR12 Photometric Data
 		write_photo = True
 		if write_photo == True:
-			cut = np.where((photo['ra']<clus_ra+d_ra)&(photo['ra']>clus_ra-d_ra)&(photo['dec']<clus_dec+d_dec)&(photo['dec']>clus_dec-d_dec)&(photo['photoz']<clus_z+0.05)&(photo['photoz']>clus_z-0.05))[0]
+			cut = np.where((photo['ra']<clus_ra+d_ra)&(photo['ra']>clus_ra-d_ra)&(photo['dec']<clus_dec+d_dec)&(photo['dec']>clus_dec-d_dec)&(photo['photoz']<clus_z+0.1)&(photo['photoz']>clus_z-0.1))[0]
 			id = photo['objid'][cut]
 			ra = photo['ra'][cut]
 			dec = photo['dec'][cut]
@@ -120,18 +152,18 @@ if cluster_cut == True:
 			gal_data = np.vstack([ra,dec,z,photoz,appmag_u,appmag_g,appmag_r,appmag_i,appmag_z,appmag_uerr,appmag_gerr,appmag_rerr,appmag_ierr,appmag_zerr,absmag_u,absmag_g,absmag_r,absmag_i,absmag_z,distmod,kcorr_u,kcorr_g,kcorr_r,kcorr_i,kcorr_z])
 
 			# Project using Photoz
-			ang_d,lum_d = C.zdistance(clus_z,H0)
-			angles = C.findangle(ra,dec,clus_ra,clus_dec)	
-			rdata = angles * ang_d
-			vdata = c * (photoz - clus_z) / (1 + clus_z)
+			#ang_d,lum_d = C.zdistance(clus_z,H0)
+			#angles = C.findangle(ra,dec,clus_ra,clus_dec)	
+			#rdata = angles * ang_d
+			#vdata = c * (photoz - clus_z) / (1 + clus_z)
 			# RV Cut
-			cut = np.where((vdata < 8000) & (vdata > -8000) & (rdata < 15))[0]
-			id = id[cut]
-			gal_data = gal_data.T[cut].T
-			ra,dec,z,photoz,appmag_u,appmag_g,appmag_r,appmag_i,appmag_z,appmag_uerr,appmag_gerr,appmag_rerr,appmag_ierr,appmag_zerr,absmag_u,absmag_g,absmag_r,absmag_i,absmag_z,distmod,kcorr_u,kcorr_g,kcorr_r,kcorr_i,kcorr_z = gal_data
+			#cut = np.where((vdata < 8000) & (vdata > -8000) & (rdata < 15))[0]
+			#id = id[cut]
+			#gal_data = gal_data.T[cut].T
+			#ra,dec,z,photoz,appmag_u,appmag_g,appmag_r,appmag_i,appmag_z,appmag_uerr,appmag_gerr,appmag_rerr,appmag_ierr,appmag_zerr,absmag_u,absmag_g,absmag_r,absmag_i,absmag_z,distmod,kcorr_u,kcorr_g,kcorr_r,kcorr_i,kcorr_z = gal_data
 
 			# If len(cut) == 0 continue
-			if len(cut) == 0: continue
+			#if len(cut) == 0: continue
 
 			# Make Final Data Array with DR12_SpecObjId and DR12_Photoz data!
 			col1 = fits.Column(name='objid',format='J',array=id)
@@ -167,9 +199,9 @@ if cluster_cut == True:
 
 
 		# Get Galaxy Cutout around Cluster for Spectroscopic Data from DR12
-		write_spectro = False
+		write_spectro = True
 		if write_spectro == True:
-			cut = np.where((dr12['ra']<clus_ra+d_ra)&(dr12['ra']>clus_ra-d_ra)&(dr12['dec']<clus_dec+d_dec)&(dr12['dec']>clus_dec-d_dec)&(dr12['z']<clus_z+0.075)&(dr12['z']>clus_z-0.075))[0]
+			cut = np.where((dr12['ra']<clus_ra+d_ra)&(dr12['ra']>clus_ra-d_ra)&(dr12['dec']<clus_dec+d_dec)&(dr12['dec']>clus_dec-d_dec)&(dr12['z']<clus_z+d_z)&(dr12['z']>clus_z-d_z))[0]
 			gal_specobjid = dr12['specobjid'][cut]
 			gal_objid = dr12['objid'][cut]
 			gal_ra = dr12['ra'][cut]
@@ -197,7 +229,7 @@ if cluster_cut == True:
 			rdata = angles * ang_d
 			vdata = c * (gal_z - clus_z) / (1 + clus_z)
 			# RV Cut
-			cut = np.where((vdata < 6000) & (vdata > -6000) & (rdata < 12))[0]
+			cut = np.where((vdata < 7000) & (vdata > -7000) & (rdata < 12))[0]
 			gal_specobjid,gal_objid = gal_specobjid[cut],gal_objid[cut]
 			gal_class,gal_subclass = gal_class[cut],gal_subclass[cut]
 			gal_ra,gal_dec,gal_z,gal_zerr = gal_ra[cut],gal_dec[cut],gal_z[cut],gal_zerr[cut]
@@ -232,22 +264,26 @@ if cluster_cut == True:
 # Calculate Nspec per cluster
 calc_Nspec = False
 if calc_Nspec == True:
+	f = open('individual/halo_arrays.pkl','rb')
+	input = pkl.Unpickler(f)
+	run_dict = input.load()
+	globals().update(run_dict)
+	f.close()
+
 	rlim = 1.0	# R_vir
 	Vlim = 5000	# km/s
 	Nspec = []
 	Index = []
-	for i in range(len(c4['halo_id'])):
+	for i in range(len(HaloID)):
 		if i%100 == 0: print i
-		# Strict Halo Cleanliness Criteria
-		if c4['sub'][i]>=3 or c4['single'][i]==0: continue
 		# Define Rlim
-		Rlim = c4['rvir'][i]*rlim
+		Rlim = RVIR[i]*rlim
 		# Get Halo Data
-		clus_ra = avg_ra[i]
-		clus_dec = avg_dec[i]
-		clus_z = avg_z[i]
+		clus_ra = RA[i]
+		clus_dec = DEC[i]
+		clus_z = Z[i]
 		try:
-			data = fits.open(data_set+'Halo_'+str(c4['halo_id'][i])+'_SpectroData.fits')[1].data
+			data = fits.open(data_set+'Halo_'+str(HaloID[i])+'_SpectroData.fits')[1].data
 			gal_ra,gal_dec,gal_z = data['ra'],data['dec'],data['z']
 			angles = C.findangle(gal_ra,gal_dec,clus_ra,clus_dec)
 			rdata = angles * C.zdistance(clus_z,H0)[0]
@@ -270,47 +306,56 @@ class RICHNESS(object):
 	def __init__(self,varib):
 		self.__dict__.update(varib)
 
-	def richness_est(self,ra,dec,z,pz,gmags,rmags,imags,abs_rmags,haloid,clus_ra,clus_dec,clus_z,clus_rvir=None,shiftgap=True):
+	def richness_est(self,ra,dec,z,pz,gmags,rmags,imags,abs_rmags,haloid,clus_ra,clus_dec,clus_z,clus_rvir=None,shiftgap=True,use_specs=True,fit_rs=False):
 		''' Richness estimator, magnitudes should be apparent mags except for abs_rmag
 			z : spectroscopic redshift
 			pz : photometric redshift
 		'''
 		# Put Into Class Namespace
-		keys = ['ra','dec','z','pz','gmags','rmags','imags','clus_ra','clus_dec','clus_z','clus_rvir','vel_disp','color_data','color_cut','RS_color','RS_sigma','signal','background','richness','mems','phot','spec','Nspec','deg_per_rvir','SA_outer','SA_inner','outer_red_dense','inner_background','Nphot_inner','Nphot_outer','red_inner','red_outer']
+		keys = ['ra','dec','z','pz','gmags','rmags','imags','clus_ra','clus_dec','clus_z','clus_rvir','vel_disp','color_data','color_cut','RS_color','RS_sigma','clus_color_cut','signal','background','richness','mems','phot','spec','Nspec','deg_per_rvir','SA_outer','SA_inner','outer_red_dense','inner_background','Nphot_inner','Nphot_outer','red_inner','red_outer','all','outer_edge','inner_edge','shift_cut','set']
 		self.__dict__.update(ez.create(keys,locals()))
 
-		# Take rough virial radius measurement, this method is bad...
+		# Take rough virial radius measurement, this method is BAD...
 		if clus_rvir == None:
 			clus_rvir = np.exp(-1.86)*len(np.where((rmags < -19.55) & (rdata < 1.0) & (np.abs(vdata) < 3500))[0])**0.51
 			self.clus_rvir = clus_rvir
 
-		# Magnitue Cut at -19 Absolute R Mag
-		bright = np.where(abs_rmags < -19)[0]
+		# Magnitue Cut at -19 Absolute R Mag and sort by them
+		bright = np.where(abs_rmags < -19.5)[0]
 		data = np.vstack([ra,dec,z,pz,gmags,rmags,imags,abs_rmags])
 		data = data.T[bright].T
 		ra,dec,z,pz,gmags,rmags,imags,abs_rmags = data
+                data = np.vstack([ra,dec,z,pz,gmags,rmags,imags,abs_rmags])
+		sorts = np.argsort(abs_rmags)
+		data = data.T[sorts].T
+                ra,dec,z,pz,gmags,rmags,imags,abs_rmags = data
 		self.__dict__.update(ez.create(keys,locals()))
 
 		# Separate Into Spectro Z and Photo Z DataSets
-		spec_cut = np.where(np.abs(z) > 1e-4)[0]
+		spec_cut = np.abs(z) > 1e-4
 		phot_cut = np.where(np.abs(z) < 1e-4)[0]
+		all = {'ra':ra,'dec':dec,'z':z,'pz':pz,'gmags':gmags,'rmags':rmags,'imags':imags,'abs_rmags':abs_rmags}
 		spec = {'ra':ra[spec_cut],'dec':dec[spec_cut],'z':z[spec_cut],'pz':pz[spec_cut],'gmags':gmags[spec_cut],'rmags':rmags[spec_cut],'imags':imags[spec_cut],'abs_rmags':abs_rmags[spec_cut]}
-		phot = {'ra':ra[phot_cut],'dec':dec[phot_cut],'z':z[phot_cut],'pz':pz[phot_cut],'gmags':gmags[phot_cut],'rmags':rmags[phot_cut],'imags':imags[phot_cut],'abs_rmags':abs_rmags[phot_cut]}
+		phot = {'ra':ra[~spec_cut],'dec':dec[~spec_cut],'z':z[~spec_cut],'pz':pz[~spec_cut],'gmags':gmags[~spec_cut],'rmags':rmags[~spec_cut],'imags':imags[~spec_cut],'abs_rmags':abs_rmags[~spec_cut]}
 
 		# Project Spectra into radius and velocity
-		ang_d,lum_d = self.C.zdistance(clus_z,self.H0)
-		angles = self.C.findangle(spec['ra'],spec['dec'],clus_ra,clus_dec)
+		ang_d,lum_d = C.zdistance(clus_z,self.H0)
+		angles = C.findangle(spec['ra'],spec['dec'],clus_ra,clus_dec)
 		rdata = angles * ang_d
 		vdata = self.c * (spec['z'] - clus_z) / (1 + clus_z)
 
 		# Shiftgapper for Interlopers
 		if shiftgap == True:
+			len_before = np.where((rdata < clus_rvir*1.5)&(np.abs(rdata)<4000))[0].size
 			clus_data = np.vstack([rdata,vdata,spec['ra'],spec['dec'],spec['z'],spec['pz'],spec['gmags'],spec['rmags'],spec['imags'],spec['abs_rmags']])
 			clus_data = C.shiftgapper(clus_data.T).T
+			sorts = np.argsort(clus_data[-1])
+			clus_data = clus_data.T[sorts].T
 			rdata,vdata,spec['ra'],spec['dec'],spec['z'],spec['pz'],spec['gmags'],spec['rmags'],spec['imags'],spec['abs_rmags'] = clus_data
-		
-		# Measure Velocity Dispersion of all galaxies within 1.25 * r_vir
-		vel_disp = astats.biweight_midvariance(vdata[np.where(rdata < (clus_rvir*1.25))])
+			shift_cut = len_before - np.where((rdata < clus_rvir)&(np.abs(rdata)<4000))[0].size
+
+		# Measure Velocity Dispersion of all galaxies within 1 * r_vir and np.abs(vdata) < 4000 km/s
+		vel_disp = astats.biweight_midvariance(vdata[np.where((rdata < clus_rvir*1)&(np.abs(vdata) < 4000))])
 		spec.update({'rdata':rdata,'vdata':vdata})
 		self.__dict__.update(ez.create(keys,locals()))
 
@@ -318,15 +363,21 @@ class RICHNESS(object):
 		# Get Members from Specta, get their red sequence color
 		mems = np.where((spec['rdata'] < clus_rvir)&(np.abs(spec['vdata'])<2*vel_disp))[0]
 		color_data = spec['gmags'] - spec['rmags']
-		color_cut = np.where((color_data[mems] < 1.0) & (color_data[mems] > 0.6))[0]
+		color_cut = np.where((color_data[mems] < 1.15) & (color_data[mems] > 0.65))[0]
 		RS_color = astats.biweight_location(color_data[mems][color_cut])
 		RS_sigma = astats.biweight_midvariance(color_data[mems][color_cut])
+		if fit_rs == True:
+			clf = linear_model.LinearRegression()
+			set = np.where(np.abs(color_data[mems]-RS_color)<3*RS_sigma)[0]
+			clf.fit(spec['rmags'][mems][set].reshape(set.size,1),color_data[mems][set])
+			
 		# Nspec is # of members that are within 2 sigma of cluster color
-		Nspec = len(np.where(np.abs(color_data[mems] - RS_color) < RS_sigma*2)[0])
+		clus_color_cut = np.where(np.abs(color_data[mems] - RS_color) < RS_sigma*2)[0]
+		Nspec = len(clus_color_cut)
 		self.__dict__.update(ez.create(keys,locals()))
 
 		# Plot
-		make_plot = True
+		make_plot = False
 		if make_plot == True:
 			fig,ax = mp.subplots()
 			ax.plot(rmags,gmags-rmags,'ko',alpha=.8)
@@ -343,21 +394,32 @@ class RICHNESS(object):
 			mp.close(fig)
 
 		# Get Rdata from PhotoZ Data Set
-		angles = self.C.findangle(phot['ra'],phot['dec'],clus_ra,clus_dec)
-		phot['rdata'] = angles * ang_d
+		angles = C.findangle(all['ra'],all['dec'],clus_ra,clus_dec)
+		all['rdata'] = angles * ang_d
 
 		# Get arcsec per kpc proper
 		deg_per_rvir = R.Cosmo.arcsec_per_kpc_proper(clus_z).value * 1e3 * clus_rvir / 3600
 
-		# Get Solid Angle of Virial Circle out to 1 rvir, and solid angle of outer annuli, which is annuli from 4rvir < R < 6rvir
+		# Get Area of Virial Circle out to 1 rvir, and Area of outer annuli, which is annuli from 4rvir < R < 6rvir, or dependent on rvir
+		if clus_rvir < 2.5:
+			outer_edge = 6.0
+			inner_edge = 4.0
+		elif clus_rvir >= 2.5 and clus_rvir < 3:
+			outer_edge = 5.0
+			inner_edge = 3.5
+		else:
+			outer_edge = 3.0
+			inner_edge = 2.0	
 		SA_inner = np.pi*deg_per_rvir**2
-		SA_outer = np.pi * ( (6*deg_per_rvir)**2 - (4*deg_per_rvir)**2 )
+		SA_outer = np.pi * ( (outer_edge*deg_per_rvir)**2 - (inner_edge*deg_per_rvir)**2 )
 
 		# Get Number of Cluster Color Galaxies from Photo Data Set in Inner Circle and Outer Annuli
-		red_inner = np.where(((phot['gmags']-phot['rmags']) < RS_color + 2*RS_sigma)&((phot['gmags']-phot['rmags']) > RS_color - 2*RS_sigma)&(phot['rdata']<clus_rvir))[0]
-		red_outer = np.where(((phot['gmags']-phot['rmags']) < RS_color + 2*RS_sigma)&((phot['gmags']-phot['rmags']) > RS_color - 2*RS_sigma)&(phot['rdata']<6*clus_rvir)&(phot['rdata']>4*clus_rvir))[0]
+		red_inner = np.where(((all['gmags']-all['rmags']) < RS_color + 1.5*RS_sigma)&((all['gmags']-all['rmags']) > RS_color - 1.5*RS_sigma)&(all['rdata']<clus_rvir))[0]
+		red_outer = np.where(((all['gmags']-all['rmags']) < RS_color + 1.5*RS_sigma)&((all['gmags']-all['rmags']) > RS_color - 1.5*RS_sigma)&(all['rdata']<outer_edge*clus_rvir)&(all['rdata']>inner_edge*clus_rvir))[0]
 		Nphot_inner = len(red_inner)
 		Nphot_outer = len(red_outer)
+
+		self.__dict__.update(ez.create(keys,locals()))
 
 		# Get Solid Angle Density of Outer Red Galaxies
 		outer_red_dense = Nphot_outer / SA_outer
@@ -369,37 +431,58 @@ class RICHNESS(object):
 		else:
 			Nphot_inner = 0
 
-		# Richness = Nspec + Nphot_inner
-		richness = Nspec + Nphot_inner
+		# Richness = Nspec + Nphot_inner or just Nphot_inner
+		if use_specs == True:
+			richness = Nspec + Nphot_inner
+		else:
+			richness = Nphot_inner
 		self.__dict__.update(ez.create(keys,locals()))
 
 		return richness
 
-calc_rich = False
+R = RICHNESS(varib)
+calc_rich = True
 if calc_rich == True:
-	R = RICHNESS(varib)
+
+	ra_lim = (123,250)
+	dec_lim = (-4,66)
+	arcs = np.array(Cosmo.arcsec_per_kpc_proper(Z))*15000. / 3600.    # 15 Mpc in degrees
+	d_dec = np.copy(arcs)
+	d_ra = arcs/np.cos(DEC*np.pi/180)
+        danger = np.where( (RA+d_ra > ra_lim[1]) | (RA-d_ra < ra_lim[0]) | (DEC+d_dec > dec_lim[1]) | (DEC-d_dec < dec_lim[0]))[0]
+
+	use_specs = False
 	clus_id = []
 	richness  = []
-	for i in range(len(c4['halo_id'])):
-		if i%100 == 0: print i
+	nspec = []
+	vel_disp = []
+	for i in range(len(HaloID)):	#len(c4['halo_id'])):
+		if i%400 == 0: print i
 
-		if c4['sub'][i]>=3 or c4['single'][i]==0: continue
+#		if c4['sub'][i]>3 or np.isnan(avg_ra)[i] == True: continue
 
 		# Load Halo Data
-		haloid = c4['halo_id'][i]
-		clus_ra = c4['ra_bcg'][i]
-		clus_dec = c4['dec_bcg'][i]
-		clus_z = c4['z_mean'][i]
-		clus_rvir = c4['rvir'][i]
-		if clus_rvir < 0.5: clus_rvir = 0.5
-		elif clus_rvir > 2.5: clus_rvir = 2.5
-		
+		#haloid = c4['halo_id'][i]
+		#clus_ra = c4['ra_bcg'][i]
+		#clus_dec = c4['dec_bcg'][i]
+		#clus_z = c4['z_mean'][i]
+		#clus_rvir = c4['rvir'][i]
+		#if clus_rvir < 0.5: clus_rvir = 0.5
+		#elif clus_rvir > 2: clus_rvir = 2
+
 		# Use Avg Halo Data
-		use_avg = True
-		if use_avg == True and ~np.isnan(avg_ra[i]):
-			clus_ra = avg_ra[i]
-			clus_dec = avg_dec[i]
-			clus_z = avg_z[i]
+		#use_avg = True
+		#if use_avg == True and ~np.isnan(avg_ra[i]):
+		#	clus_ra = avg_ra[i]
+		#	clus_dec = avg_dec[i]
+		#	clus_z = avg_z[i]
+
+		haloid = HaloID[i]
+		clus_ra = RA[i]
+		clus_dec = DEC[i]
+		clus_z = Z[i]
+		clus_rvir = RVIR[i]
+		clus_hvd = HVD[i]
 
 		# Get Other nearby Clusters
 		nearby = np.where((avg_ra < clus_ra + 0.5)&(avg_ra > clus_ra - 0.5)&(avg_dec < clus_dec + 0.5)&(avg_dec > clus_dec - 0.5)&(avg_ra != clus_ra))[0]
@@ -408,7 +491,7 @@ if calc_rich == True:
 		near_z = avg_z[nearby]
 
 		# Load Galaxy Data
-		galdata = fits.open(data_set+'Halo_'+str(i)+'_PhotoData.fits')[1].data
+		galdata = fits.open(data_set+'Halo_'+str(HaloID[i])+'_PhotoData.fits')[1].data
 		gal_ra = galdata['ra']
 		gal_dec = galdata['dec']
 		gal_z = galdata['z']
@@ -420,12 +503,25 @@ if calc_rich == True:
 		gal_appr = galdata['appmag_r']
 		gal_appi = galdata['appmag_i']
 
-		rich = R.richness_est(gal_ra,gal_dec,gal_z,gal_photoz,gal_appg,gal_appr,gal_appi,gal_absr,haloid,clus_ra,clus_dec,clus_z,clus_rvir=clus_rvir)
+		rich = R.richness_est(gal_ra,gal_dec,gal_z,gal_photoz,gal_appg,gal_appr,gal_appi,gal_absr,haloid,clus_ra,clus_dec,clus_z,clus_rvir=clus_rvir,use_specs=use_specs)
 		richness.append(rich)
 		clus_id.append(haloid)
+		vel_disp.append(R.vel_disp)
+		nspec.append(R.Nspec)
 
 	richness = np.array(richness)
 	clus_id = np.array(clus_id)
+	vel_disp = np.array(vel_disp)
+	nspec = np.array(nspec)
+
+	write = True
+	if write == True:
+		f = open('C4_Richnesses.tab','w')
+		f.write('# Richnesses and Velocity Dispersions for C4 Clusters\n')
+		f.write('# HaloID, Richness, Vel_Disp, Nspec\n')
+		for i in range(len(richness)):
+			f.write(str(clus_id[i])+'\t'+str(richness[i])+'\t'+str(vel_disp[i])+'\t'+str(nspec[i])+'\n')
+		f.close()
 
 
 ## Positional Recentering
@@ -440,12 +536,12 @@ if recenter == True:
 		haloid = c4['halo_id'][i]
 		clus_ra = c4['ra_c4'][i]
 		clus_dec = c4['dec_c4'][i]
-		clus_z = c4['z_c4'][i]
+		clus_z = c4['z_mean'][i]
 		clus_rvir = c4['rvir'][i]
 		if clus_rvir < 0.5:
 			clus_rvir = 0.5
-		elif clus_rvir > 2.5:
-			clus_rvir = 2.5
+		elif clus_rvir > 2:
+			clus_rvir = 2
 
 		# Load Galaxy Data
 		galdata = fits.open(data_set+'Halo_'+str(i)+'_PhotoData.fits')[1].data
@@ -473,7 +569,7 @@ if recenter == True:
 		vdata = c * (gal_z - clus_z) / (1 + clus_z)
 
 		# Select Member Gals and get Avg RA, DEC, Z, and new rdata, vdata
-		select = np.where((rdata < clus_rvir) & (np.abs(vdata) < 2000))[0]
+		select = np.where((rdata < clus_rvir) & (np.abs(vdata) < 1500))[0]
 		avg_ra = astats.biweight_location(gal_ra[select])
 		avg_dec = astats.biweight_location(gal_dec[select])
 		avg_z = astats.biweight_location(gal_z[select])

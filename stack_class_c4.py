@@ -21,7 +21,7 @@ class CFOUR(object):
 		'''This function loads halo data and makes cosmology corrections'''
 
 		# Halo Data
-		c4 = fits.open(data_set+'C4_Halos.fits')[1].data
+		c4 = fits.open(self.root+'/C4/'+self.data_set+'C4_Halos.fits')[1].data
 		RA = c4['ra_bcg']
 		DEC = c4['dec_bcg']
 		Z = c4['z_mean']
@@ -32,24 +32,38 @@ class CFOUR(object):
 	
 		# Get Averaged Halo Centers
 		if avg_centers == True:
-			avg_HaloID,RA,DEC,Z = np.loadtxt('Avg_Halo_Centers.tab',delimiter='\t',unpack=True)
+			avg_HaloID,RA,DEC,Z = np.loadtxt(self.root+'/C4/'+'Avg_Halo_Centers.tab',delimiter='\t',unpack=True)
 			avg_HaloID = np.array(avg_HaloID,int)
 
 		# Richnesses based on Photo and Spectro Z
-		clus_id,N200 = np.loadtxt('C4_Richnesses.tab',delimiter='\t',unpack=True)
+		clus_id,N200,HVD,Nspec = np.loadtxt(self.root+'/C4/'+'C4_Richnesses.tab',delimiter='\t',unpack=True)
 		index = []
-		for i in range(len(clusid)):
+		for i in range(len(clus_id)):
 			if clus_id[i] in avg_HaloID: index.append(np.where(avg_HaloID==clus_id[i])[0][0])
 		index = np.array(index)
 
-		HaloData = np.vstack([RA,DEC,Z,RVIR,N200,SINGLE,SUB,NC4])
-		HaloData = HaloData.T[index].T
-		RA,DEC,Z,RVIR,N200,SINGLE,SUB,NC4 = HaloData
-		HaloID = HaloID[index]
+		RA,DEC,Z,RVIR,SINGLE,SUB,NC4 = RA[index],DEC[index],Z[index],RVIR[index],SINGLE[index],SUB[index],NC4[index]
+		HaloData = np.vstack([RA,DEC,Z,RVIR,HVD,N200,SINGLE,SUB,NC4])
+		HaloID = avg_HaloID[index]
 
 		if sort == True:
-			HaloID,N200,HaloData = self.sort_halos(HaloID,N200,HaloData)
-			RA,DEC,Z = HaloData
+			HaloID, HaloData = self.sort_halos(HaloID,N200,HaloData)
+			RA,DEC,Z,RVIR,HVD,N200,SINGLE,SUB,NC4 = HaloData
+
+		# Load M200 and HVD's from individual runs if available
+		try:
+			ID,M200,HVD2,R200 = np.loadtxt(self.root+'/C4/individual/Iteration1_ClusData.tab',delimiter='\t',unpack=True,usecols=(0,1,4,3))
+			if len(M200) != len(HaloID):
+				match = np.array(map(lambda x: np.where(ID == x)[0],HaloID))
+				match = match[~np.isnan(match)]
+				M200,HVD = M200[match],HVD2[match]
+		except:
+			M200 = np.zeros(len(HaloID))
+			# Fix Certain Variables
+			RVIR[np.where(RVIR > 2.5)] = 2.5
+			HVD[np.where(HVD > 1000)] = 1000
+
+		HaloData = np.vstack([RA,DEC,Z,M200,RVIR,HVD,N200,SINGLE,SUB,NC4,Nspec])
 
 		return HaloID, HaloData
 
@@ -57,7 +71,7 @@ class CFOUR(object):
 	def sort_halos(self,HaloID,Observable,HaloData):
 		''' Sort Halo Data by some Criteria '''
 		# Sort Arrays by descending Observable
-		sort = np.argsort(observable)[::-1]	
+		sort = np.argsort(Observable)[::-1]	
 		HaloID = HaloID[sort]
 		HaloData = HaloData.T[sort].T
 	
@@ -67,7 +81,7 @@ class CFOUR(object):
 
 	def load_galaxies(self,haloid):
 		''' Loads haloid galaxies from a local directory '''
-		galdata = fits.open(data_set+'Halo_'+str(i)+'_SpectroData.fits')[1].data
+		galdata = fits.open(self.root+'/C4/'+self.data_set+'Halo_'+str(haloid)+'_SpectroData.fits')[1].data
 		gal_ra = galdata['ra']
 		gal_dec = galdata['dec']
 		gal_z = galdata['z']
@@ -78,15 +92,25 @@ class CFOUR(object):
 		return np.vstack([gal_ra,gal_dec,gal_z,gal_gmags,gal_rmags,gal_imags])
 
 
+	def load_chris_gals(self,haloid):
+		''' Loads haloid galaxies from Chris' data '''
+		galra,galdec,gal_umag,gal_gmag, gal_rmag, gal_imag,gal_zmag, gal_z = np.loadtxt(self.chris_data_root+'/proj_data/C4_dr12_'+str(haloid)+'_data.csv',dtype='float',delimiter=',',skiprows=1,usecols=(1,2,3,4,5,6,7,13),unpack=True)
 
-	def load_project_append(self,haloid,clus_ra,clus_dec,clus_z,clus_r200):
+		return np.vstack([galra,galdec,gal_z,gal_gmag,gal_rmag,gal_imag])
+
+
+	def load_project_append(self,haloid,clus_ra,clus_dec,clus_z,clus_m200,clus_r200,clus_hvd,PS):
 		"""
 		This function loads galaxy data then projects it, discarding the galaxy data after using it to save memory
 		"""
 
 		#Load Galaxies
-		galdata = self.load_galaxies(haloid)
-		gal_ra,gal_dec,gal_z,gal_gmags,gal_rmags,gal_imags = galdata
+		if self.chris_data == False:
+			galdata = self.load_galaxies(haloid)
+			gal_ra,gal_dec,gal_z,gal_gmags,gal_rmags,gal_imags = galdata
+		else:
+			galdata = self.load_chris_gals(haloid)
+                        gal_ra,gal_dec,gal_z,gal_gmags,gal_rmags,gal_imags = galdata
 
 		# Get angles and phase spaces
 		ang_d,lum_d = self.U.C.zdistance(clus_z,self.H0)
@@ -95,7 +119,7 @@ class CFOUR(object):
 		vdata = self.c * (gal_z - clus_z) / (1 + clus_z)
 
 		# Append to PS
-		PS.append( {'Rdata':rdata,'Vdata':vdata,'G_Mags':gal_gmags,'R_Mags':gal_rmags,'I_Mags':gal_imags,'HaloID':haloid,'R200':clus_r200} )
+		PS.append( {'Rdata':rdata,'Vdata':vdata,'G_Mags':gal_gmags,'R_Mags':gal_rmags,'I_Mags':gal_imags,'HaloID':haloid,'R200':clus_r200,'HVD':clus_hvd,'M200':clus_m200} )
 
 
         def load_project_append_bootstrap(self,HaloID,M200,R200,HVD,Z,Halo_P,Halo_V,PS,weight):

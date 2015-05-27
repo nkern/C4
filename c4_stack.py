@@ -8,7 +8,8 @@ This script does strictly self stacking or bin stacking.
 ## Import Modules
 print '...importing modules'
 from caustic_stack import *
-from stack_class import *
+from stack_class_c4 import *
+from fits_table import fits_table
 
 sys.path.insert(0,os.getcwd())
 __import__('caustic_params')
@@ -29,7 +30,7 @@ if bootstrap == True:
 	data_loc = 'binstack/bootstrap'+str(bootstrap_num)+'/rep'+str(bootstrap_rep)
 
 ## Make dictionary for loaded constants, doesn't matter if some don't exist
-keys = ['c','h','H0','q','beta','fbeta','r_limit','v_limit','photo_data','spec_data','halo_num','gal_num','line_num','method_num','write_loc','data_loc','root','self_stack','scale_data','write_data','run_time','init_clean','small_set','run_los','bootstrap','run_num','ens_num','cell_num','stack_range','mass_mix','mass_scat','bootstrap_num','bootstrap_rep','avg_meth','cent_offset','center_scat','new_halo_cent','true_mems','mirror','edge_perc','lightcone','mm_est','data_set']
+keys = ['c','h','H0','q','beta','fbeta','r_limit','v_limit','photo_data','spec_data','halo_num','gal_num','line_num','method_num','write_loc','data_loc','root','self_stack','scale_data','write_data','run_time','init_shiftgap','shiftgapper','edge_int_remove','small_set','run_los','bootstrap','run_num','ens_num','cell_num','stack_range','mass_mix','mass_scat','bootstrap_num','bootstrap_rep','avg_meth','cent_offset','center_scat','new_halo_cent','true_mems','mirror','edge_perc','lightcone','mm_est','data_set']
 
 varib = ez.create(keys,locals())
 varib.update({'_name_':'varib'})
@@ -40,32 +41,104 @@ U = Universal(varib)
 C4 = CFOUR(varib)
 
 U.print_separation('## Running c4_stack.py')
-names = ['run_time','','run_num','gal_num','line_num','cell_num','ens_num','halo_num','method_num','avg_meth','','write_data','scale_data','run_los','mirror','new_halo_cent','init_clean','bootstrap','','bootstrap_num','bootstrap_rep','','data_set','data_loc','write_loc','root']
+names = ['run_time','','run_num','gal_num','line_num','cell_num','ens_num','halo_num','method_num','avg_meth','','write_data','scale_data','run_los','mirror','new_halo_cent','init_shiftgap','shiftgapper','edge_int_remove','bootstrap','bootstrap_num','bootstrap_rep','','data_set','data_loc','write_loc','root']
 U.print_varibs(names,varib)
 
 ## Load Halo Data
 U.print_separation('# ...Loading Halos',type=1)
 HaloID,HaloData = C4.load_halos(sort=True,avg_centers=True)
-RA,DEC,Z,RVIR,N200,SINGLE,SUB,NC4 = HaloData
+RA,DEC,Z,M200,RVIR,HVD,N200,SINGLE,SUB,NC4,Nspec = HaloData
+
+# Create Dummy M200
+M200 = np.zeros(len(RA))
 
 # Load in Halo Data from previously written file, or write file if doesn't exist
 try:
-	f = open(root+'/C4/'+data_loc+'/halo_arrays.pkl','rb')
-	input = pkl.Unpickler(f)	
-	run_dict = input.load()
-	globals().update(run_dict)
-	f.close()
+	try:
+		f = open(root+'/C4/'+data_loc+'/'+write_loc+'/halo_arrays.pkl','rb')
+		input = pkl.Unpickler(f)	
+		run_dict = input.load()
+		globals().update(run_dict)
+		f.close()
+	except:
+                f = open(root+'/C4/'+data_loc+'/halo_arrays.pkl','rb')
+                input = pkl.Unpickler(f)        
+                run_dict = input.load()
+                globals().update(run_dict)
+                f.close()
+
 except IOError:
 	try:
 		f = open(root+'/C4/'+data_loc+'/halo_arrays.pkl','wb')	
 		output = pkl.Pickler(f)
-		run_dict = {'HaloID':HaloID,'RA':RA,'DEC':DEC,'Z':Z,'N200':N200,'RVIR':RVIR,'SINGLE':SINGLE,'SUB':SUB,'NC4':NC4}
+		run_dict = {'HaloID':HaloID,'RA':RA,'DEC':DEC,'Z':Z,'HVD':HVD,'N200':N200,'RVIR':RVIR,'SINGLE':SINGLE,'SUB':SUB,'NC4':NC4,'M200':M200,'Nspec':Nspec}
 		output.dump(run_dict)
 		f.close()
 	except IOError:
 		pass
 
-# Unpack HaloData array into local namespace
+
+## Load in Chris' C4 Data
+chris_data = True
+C4.chris_data = chris_data
+C4.chris_data_root = '/nfs/christoq_ls/MILLENNIUM/Henriques/TRUTH_CAUSTIC_C4'
+load_chris_halos = False
+if load_chris_halos == True:
+	halos = fits.open(root+'/C4/'+data_loc+'/subsample_halos.fits')[1].data
+	HaloID = halos['orig_order']
+	RA = halos['ra_bcg']
+	DEC = halos['dec_bcg']
+	Z = halos['z_biwt']
+	Nspec = halos['Nspec']
+	N200 = halos['N200']
+	HVD = halos['HVD']
+	RVIR = halos['RHO200_RV1500']
+	SINGLE = halos['single']
+	SUB = halos['sub']
+	NC4 = halos['nc4']
+	M200 = np.zeros(len(N200))	
+
+	#c4_caustics = fits.open(C4.chris_data_root+'/caustics_geom/c4_caustics.fits')[1].data[halos['orig_order']]
+	#M200 = c4_caustics['m200']
+
+## Bin on N200
+bin = True
+if bin == True:
+	sort = np.argsort(N200)[::-1]
+	HaloID = HaloID[sort]
+	RA = RA[sort]
+	DEC = DEC[sort]
+	Z = Z[sort]
+	HVD = HVD[sort]
+	N200 = N200[sort]
+	RVIR = RVIR[sort]
+	SINGLE = SINGLE[sort]
+	SUB = SUB[sort]
+	NC4 = NC4[sort]
+	M200 = M200[sort]
+	Nspec = Nspec[sort]
+
+## Cut down to X Nspec
+cut_nspec = False
+if cut_nspec == True:
+	cut_num = 5
+	cut = np.where((Nspec > cut_num)&(N200!=0)&(M200!=0)&(SUB<4))[0]
+	HaloID = HaloID[cut][:halo_num]
+        RA = RA[cut][:halo_num]
+        DEC = DEC[cut][:halo_num]
+        Z = Z[cut][:halo_num]
+        HVD = HVD[cut][:halo_num]
+        N200 = N200[cut][:halo_num]
+        RVIR = RVIR[cut][:halo_num]
+        SINGLE = SINGLE[cut][:halo_num]
+        SUB = SUB[cut][:halo_num]
+        NC4 = NC4[cut][:halo_num]
+        M200 = M200[cut][:halo_num]
+        Nspec = Nspec[cut][:halo_num]
+
+	X = np.log10(N200)
+	Y = np.log10(M200)
+
 
 # Initialize Multi-Ensemble Array to hold resultant data
 STACK_DATA = []
@@ -90,15 +163,15 @@ for j in range(ens_num):
 	for l in range(line_num):
 		print '...Loading galaxy data and projecting line of sight #'+str(l)
 
-		C4.load_project_append(HaloID[stack_range][j*line_num:(j+1)*line_num][l],RA[stack_range][j*line_num:(j+1)*line_num][l],DEC[stack_range][j*line_num:(j+1)*line_num][l],Z[stack_range][j*line_num:(j+1)*line_num][l],RVIR[stack_range][j*line_num:(j+1)*line_num][l],PS)
+		C4.load_project_append(HaloID[stack_range][j*line_num:(j+1)*line_num][l],RA[stack_range][j*line_num:(j+1)*line_num][l],DEC[stack_range][j*line_num:(j+1)*line_num][l],Z[stack_range][j*line_num:(j+1)*line_num][l],M200[stack_range][j*line_num:(j+1)*line_num][l],RVIR[stack_range][j*line_num:(j+1)*line_num][l],HVD[stack_range][j*line_num:(j+1)*line_num][l],PS)
 
-	PS.to_array(['Rdata','Vdata','HaloID','R200','G_mags','R_Mags','I_Mags'])
+	PS.to_array(['Rdata','Vdata','HaloID','R200','HVD','M200','G_mags','R_Mags','I_Mags','M200'])
 
 	# Build Ensemble and Run Caustic Technique
-	stack_data = S.caustic_stack(PS.Rdata,PS.Vdata,PS.HaloID,np.vstack([PS.M200,PS.R200,PS.HVD]),line_num,feed_mags=True,G_Mags=PS.G_Mags,R_Mags=PS.R_Mags,I_Mags=PS.I_Mags)
+	stack_data = S.caustic_stack(PS.Rdata,PS.Vdata,PS.HaloID,np.vstack([PS.M200,PS.R200,PS.HVD]),line_num,feed_mags=True,G_Mags=PS.G_Mags,R_Mags=PS.R_Mags,I_Mags=PS.I_Mags,ens_shiftgap=shiftgapper,edge_int_remove=edge_int_remove)
 
 	# Append other Arrays
-	extra = {'pro_pos':PS.pro_pos,'_name_':'stack_data'}
+	extra = {'_name_':'stack_data'}
 	stack_data.update(extra)
 
 	# Append to STACK_DATA
@@ -107,14 +180,33 @@ for j in range(ens_num):
 # Finished Loop
 U.print_separation('#...Finished Ensemble Loop',type=2)
 
+
+# Make Arrays
+make_arrays = True
+if make_arrays == True:
+	EDGEMASS = np.zeros(ens_num)
+	CAUMASS = np.zeros(ens_num)
+	for i in range(ens_num): EDGEMASS[i] = STACK_DATA[i]['ens_edgemass'][0]; CAUMASS[i] = STACK_DATA[i]['ens_caumass'][0]
+
+	BINN200 = np.array(map(np.median,N200[:halo_num].reshape(ens_num,halo_num/ens_num)))
+	BINNSPEC = np.array(map(np.median,Nspec[:halo_num].reshape(ens_num,halo_num/ens_num)))
+
+	d = {'M200':M200,'N200':N200,'RVIR':RVIR,'HVD':HVD,'Nspec':Nspec,'BINN200':BINN200,'BINNSPEC':BINNSPEC,'EDGEMASS':EDGEMASS,'CAUMASS':CAUMASS}
+	key = ['M200','N200','RVIR','HVD','Nspec','BINN200','BINNSPEC','EDGEMASS','CAUMASS']
+
+	if write_data == True:
+		fits_table(d,key,'C4Stack_Ngal'+str(gal_num)+'_Nclus'+str(line_num)+'_Nens'+str(ens_num)+'.fits')
+
+
+
 ### Save Data into .pkl Files ###
 if write_data == True:
 	U.print_separation('##...Starting Data Write',type=2)
 	for m in range(ens_num):
 		n = run_num*ens_num + m
 		U.print_separation("Writing Data for Ensemble #"+str(n),type=2)
-		print 'Writing File: '+root+'/OSDCStacking/'+data_loc+'/'+write_loc+'/Ensemble_'+str(n)+'_Data.pkl'
-		pkl_file = open(root+'/OSDCStacking/'+data_loc+'/'+write_loc+'/Ensemble_'+str(n)+'_Data.pkl','wb')
+		print 'Writing File: '+root+'/C4/'+data_loc+'/'+write_loc+'/Ensemble_'+str(n)+'_Data.pkl'
+		pkl_file = open(root+'/C4/'+data_loc+'/'+write_loc+'/Ensemble_'+str(n)+'_Data.pkl','wb')
 		output = pkl.Pickler(pkl_file)
 		output.dump(STACK_DATA[m])
 		output.dump(varib)
@@ -128,6 +220,6 @@ if duration < 60:
 	time.sleep(60-duration)
 	
 
-U.print_separation('## Finished millennium_stack.py'+'\n'+'Start:'+'\t'+run_time+'\n'+'End:'+'\t'+time.asctime(),type=1)
+U.print_separation('## Finished c4_stack.py'+'\n'+'Start:'+'\t'+run_time+'\n'+'End:'+'\t'+time.asctime(),type=1)
 
 
