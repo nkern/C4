@@ -5,7 +5,7 @@ git add git_add.sh
 git add c4_stack.py
 git add c4_clusters.py
 git add C4_Richnesses.tab
-git add Avg_Halo_Centers.tab
 git add c4_pbs.sh
-
-
+git add c4_richness.py
+git add fits_table.py
+git add MassRich/MassRich.py

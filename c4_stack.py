@@ -2,7 +2,7 @@
 """
 This program uses the Caustic Technique to estimate the masses of galaxy clusters,
 after having applied a stacking technique to create ensemble clusters.
-This script does strictly self stacking or bin stacking.
+This script does strictly bin stacking.
 
 """
 ## Import Modules
@@ -77,14 +77,24 @@ except IOError:
 	except IOError:
 		pass
 
+## Selection Function
+# 2650 clusters for TRUTH_CASUTIC
+select = False
+if select == True:
+	cut = np.where((N200>10)&(Z>0.05)&(Z<.13)&(Nspec>5))[0]
+	for i in run_dict.keys():
+		run_dict[i] = run_dict[i][cut]
+	globals().update(run_dict)
+
 
 ## Load in Chris' C4 Data
 chris_data = True
 C4.chris_data = chris_data
-C4.chris_data_root = '/nfs/christoq_ls/MILLENNIUM/Henriques/TRUTH_CAUSTIC_C4'
-load_chris_halos = False
+C4.chris_data_root = '/nfs/christoq_ls/MILLENNIUM/Henriques/TRUTH_CAUSTIC'
+#C4.chris_data_root = '/nfs/christoq_ls/C4/sdssdr12'
+load_chris_halos = True
 if load_chris_halos == True:
-	halos = fits.open(root+'/C4/'+data_loc+'/subsample_halos.fits')[1].data
+	halos = fits.open(root+'/C4/'+data_loc+'/halos.fits')[1].data
 	HaloID = halos['orig_order']
 	RA = halos['ra_bcg']
 	DEC = halos['dec_bcg']
@@ -92,7 +102,7 @@ if load_chris_halos == True:
 	Nspec = halos['Nspec']
 	N200 = halos['N200']
 	HVD = halos['HVD']
-	RVIR = halos['RHO200_RV1500']
+	RVIR = halos['RVIR']
 	SINGLE = halos['single']
 	SUB = halos['sub']
 	NC4 = halos['nc4']
@@ -102,7 +112,7 @@ if load_chris_halos == True:
 	#M200 = c4_caustics['m200']
 
 ## Bin on N200
-bin = True
+bin = False
 if bin == True:
 	sort = np.argsort(N200)[::-1]
 	HaloID = HaloID[sort]
@@ -165,10 +175,20 @@ for j in range(ens_num):
 
 		C4.load_project_append(HaloID[stack_range][j*line_num:(j+1)*line_num][l],RA[stack_range][j*line_num:(j+1)*line_num][l],DEC[stack_range][j*line_num:(j+1)*line_num][l],Z[stack_range][j*line_num:(j+1)*line_num][l],M200[stack_range][j*line_num:(j+1)*line_num][l],RVIR[stack_range][j*line_num:(j+1)*line_num][l],HVD[stack_range][j*line_num:(j+1)*line_num][l],PS)
 
-	PS.to_array(['Rdata','Vdata','HaloID','R200','HVD','M200','G_mags','R_Mags','I_Mags','M200'])
+	PS.to_array(['Rdata','Vdata','HaloID','R200','HVD','Z','M200','G_mags','R_Mags','I_Mags'])
+
+	# Check for empty-core clusters, skip those b/c shiftgapper can't handle them
+	if np.where((PS.Rdata<0.5)&(np.abs(PS.Vdata)<3000))[0].size == 0:
+		STACK_DATA.append( {} )
+		print ''
+		print '-'*40
+		print 'EMPTY CORE CLUSTER'
+		print '-'*40
+		print ''
+		continue
 
 	# Build Ensemble and Run Caustic Technique
-	stack_data = S.caustic_stack(PS.Rdata,PS.Vdata,PS.HaloID,np.vstack([PS.M200,PS.R200,PS.HVD]),line_num,feed_mags=True,G_Mags=PS.G_Mags,R_Mags=PS.R_Mags,I_Mags=PS.I_Mags,ens_shiftgap=shiftgapper,edge_int_remove=edge_int_remove)
+	stack_data = S.caustic_stack(PS.Rdata,PS.Vdata,PS.HaloID,np.vstack([PS.M200,PS.R200,PS.HVD,PS.Z]),line_num,feed_mags=True,G_Mags=PS.G_Mags,R_Mags=PS.R_Mags,I_Mags=PS.I_Mags,ens_shiftgap=shiftgapper,edge_int_remove=edge_int_remove)
 
 	# Append other Arrays
 	extra = {'_name_':'stack_data'}
@@ -182,21 +202,41 @@ U.print_separation('#...Finished Ensemble Loop',type=2)
 
 
 # Make Arrays
-make_arrays = True
+make_arrays = False
 if make_arrays == True:
 	EDGEMASS = np.zeros(ens_num)
 	CAUMASS = np.zeros(ens_num)
-	for i in range(ens_num): EDGEMASS[i] = STACK_DATA[i]['ens_edgemass'][0]; CAUMASS[i] = STACK_DATA[i]['ens_caumass'][0]
+	EDGEMASS_EST = np.zeros(ens_num)
+	CAUMASS_EST = np.zeros(ens_num)
+	R200_EST = np.zeros(ens_num)
+	ENS_HVD = np.zeros(ens_num)
+	EDGESURF = []
+	CAUSURF = []
+	ENS_R,ENS_V = [], []
+	for i in range(ens_num): 
+		EDGEMASS[i] = STACK_DATA[i]['ens_edgemass'][0]
+		CAUMASS[i] = STACK_DATA[i]['ens_caumass'][0]
+		EDGEMASS_EST[i] = STACK_DATA[i]['ens_edgemass_est'][0]
+		CAUMASS_EST[i] = STACK_DATA[i]['ens_caumass_est'][0]
+		R200_EST[i] = STACK_DATA[i]['ens_r200_est'][0]
+		ENS_HVD[i] = STACK_DATA[i]['ens_hvd'][0]
+		EDGESURF.append(STACK_DATA[i]['ens_edgesurf'])
+		CAUSURF.append(STACK_DATA[i]['ens_causurf'])
+		ENS_R.append(STACK_DATA[i]['ens_r'])
+		ENS_V.append(STACK_DATA[i]['ens_v'])
 
+	EDGESURF,CAUSURF = np.array(EDGESURF),np.array(CAUSURF)
+	ENS_R,ENS_V = np.array(ENS_R),np.array(ENS_V)
 	BINN200 = np.array(map(np.median,N200[:halo_num].reshape(ens_num,halo_num/ens_num)))
+        BINHVD = np.array(map(np.median,HVD[:halo_num].reshape(ens_num,halo_num/ens_num)))
 	BINNSPEC = np.array(map(np.median,Nspec[:halo_num].reshape(ens_num,halo_num/ens_num)))
 
-	d = {'M200':M200,'N200':N200,'RVIR':RVIR,'HVD':HVD,'Nspec':Nspec,'BINN200':BINN200,'BINNSPEC':BINNSPEC,'EDGEMASS':EDGEMASS,'CAUMASS':CAUMASS}
-	key = ['M200','N200','RVIR','HVD','Nspec','BINN200','BINNSPEC','EDGEMASS','CAUMASS']
+	d = {'M200':M200,'N200':N200,'RVIR':RVIR,'HVD':HVD,'Nspec':Nspec,'BINN200':BINN200,'BINNSPEC':BINNSPEC,'EDGEMASS':EDGEMASS,'CAUMASS':CAUMASS,'EDGEMASS_EST':EDGEMASS_EST,'CAUMASS_EST':CAUMASS_EST,'R200_EST':R200_EST,'EDGESURF':EDGESURF,'CAUSURF':CAUSURF,'x_range':S.C.x_range,'ENS_R':ENS_R,'ENS_V':ENS_V,'ENS_HVD':ENS_HVD}
 
-	if write_data == True:
-		fits_table(d,key,'C4Stack_Ngal'+str(gal_num)+'_Nclus'+str(line_num)+'_Nens'+str(ens_num)+'.fits')
-
+	f = open('C4Stack_Ngal'+str(gal_num)+'_Nclus'+str(line_num)+'_Nens'+str(ens_num)+'.pkl','wb')
+	output = pkl.Pickler(f)
+	output.dump(d)
+	f.close()
 
 
 ### Save Data into .pkl Files ###

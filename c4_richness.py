@@ -11,10 +11,6 @@ import cPickle as pkl
 from sklearn import linear_model
 
 
-
-
-
-
 # Set Constants
 C = Caustic()
 H0 = 72.0
@@ -26,27 +22,25 @@ root = '/nfs/christoq_ls/nkern'
 
 
 
-
-
-
-
-
 # Calculate Richnesses
 class RICHNESS(object):
 
 	def __init__(self,varib):
 		self.__dict__.update(varib)
 
-	def richness_est(self,ra,dec,z,pz,gmags,rmags,imags,abs_rmags,haloid,clus_ra,clus_dec,clus_z,clus_rvir=None,shiftgap=True,use_specs=False,fit_rs=False,spec_list=None,fixed_aperture=False,plot_gr=False,plot_sky=False):
+	def richness_est(self,ra,dec,z,pz,gmags,rmags,imags,abs_rmags,haloid,clus_ra,clus_dec,clus_z,clus_rvir=None,shiftgap=True,use_specs=False,use_bcg=False,fit_rs=False,spec_list=None,fixed_aperture=False,fixed_vdisp=False,plot_gr=False,plot_sky=False,plot_phase=False):
 		''' Richness estimator, magnitudes should be apparent mags except for abs_rmag
 			z : spectroscopic redshift
 			pz : photometric redshift
 			spec_list : indexing array specifying gals w/ spectroscopic redshifts, preferably fed as boolean numpy array
 			fixed_aperture : clus_rvir = 1 Mpc
+			fixed_vdisp : clus_vdisp = 1000 km/s (members < clus_vdisp*2)
 			use_specs : includes all spectro members in richness regardless of their color, subject to counting twice
+			use_bcg : use bcg RS_color as cluster RS_color
 			fit_rs : fit a line to the member galaxy RS relationship, as of now this does not work and we take a flat RS relationship
 			plot_gr : plot r vs g-r color diagram with RS fits
 			plot_sky : plot RA and DEC of gals with signal and background annuli
+			plot_phase : plot rdata and vdata phase space
 		'''
 		# Put Into Class Namespace
 		keys = ['ra','dec','z','pz','gmags','rmags','imags','clus_ra','clus_dec','clus_z','clus_rvir','vel_disp','color_data','color_cut','RS_color','RS_sigma','clus_color_cut','signal','background','richness','mems','phot','spec','Nspec','deg_per_rvir','SA_outer','SA_inner','outer_red_dense','inner_background','Nphot_inner','Nphot_outer','red_inner','red_outer','all','outer_edge','inner_edge','shift_cut','set']
@@ -109,6 +103,7 @@ class RICHNESS(object):
 
 		# Measure Velocity Dispersion of all galaxies within 1 * r_vir and np.abs(vdata) < 4000 km/s
 		vel_disp = astats.biweight_midvariance(vdata[np.where((rdata < clus_rvir*1)&(np.abs(vdata) < 4000))])
+		if fixed_vdisp == True: vel_disp = 1000
 		spec.update({'rdata':rdata,'vdata':vdata})
 		self.__dict__.update(ez.create(keys,locals()))
 
@@ -116,34 +111,26 @@ class RICHNESS(object):
 		# Get Members from Specta, get their red sequence color
 		mems = np.where((spec['rdata'] < clus_rvir)&(np.abs(spec['vdata'])<2*vel_disp))[0]
 		color_data = spec['gmags'] - spec['rmags']
-		color_cut = np.where((color_data[mems] < 1.15) & (color_data[mems] > 0.65))[0]
+		color_cut = np.where((color_data[mems] < 1.2) & (color_data[mems] > 0.65))[0]
 		RS_color = astats.biweight_location(color_data[mems][color_cut])
-		RS_sigma = astats.biweight_midvariance(color_data[mems][color_cut])
+		RS_shift = color_data[mems][color_cut] - RS_color
+		RS_sigma = astats.biweight_midvariance(RS_shift[np.where(np.abs(RS_shift)<.15)])
+
 		if fit_rs == True:
 			clf = linear_model.LinearRegression()
 			set = np.where(np.abs(color_data[mems]-RS_color)<3*RS_sigma)[0]
 			clf.fit(spec['rmags'][mems][set].reshape(set.size,1),color_data[mems][set])
+
+		if use_bcg == True:
+			bright = np.argsort(all['abs_rmags'][mems])[0]
+			RS_color = color_data[mems][bright]
+	                RS_shift = color_data[mems][color_cut] - RS_color
+	                RS_sigma = astats.biweight_midvariance(RS_shift[np.where(np.abs(RS_shift)<.15)])
 			
 		# Nspec is # of members that are within 2 sigma of cluster color
 		clus_color_cut = np.where(np.abs(color_data[mems] - RS_color) < RS_sigma*2)[0]
 		Nspec = len(clus_color_cut)
 		self.__dict__.update(ez.create(keys,locals()))
-
-		# Plot
-		if plot_gr == True:
-			fig,ax = mp.subplots()
-			ax.plot(rmags,gmags-rmags,'ko',alpha=.8)
-			ax.plot(spec['rmags'][mems],color_data[mems],'co')
-			ax.axhline(RS_color,color='r')	
-			ax.axhline(RS_color+RS_sigma,color='b')
-			ax.axhline(RS_color-RS_sigma,color='b')
-			ax.set_xlim(13,19)
-			ax.set_ylim(0,1.3)
-			ax.set_xlabel('Apparent R Mag',fontsize=16)
-			ax.set_ylabel('App G Mag - App R Mag',fontsize=16)
-			ax.set_title('Color-Mag Diagram, Cluster '+str(haloid))
-			fig.savefig('Halo_'+str(haloid)+'_color_mag.png',bbox_inches='tight')
-			mp.close(fig)
 
 		# Get Rdata from PhotoZ & SpecZ Data Set
 		angles = C.findangle(all['ra'],all['dec'],clus_ra,clus_dec)
@@ -191,7 +178,22 @@ class RICHNESS(object):
 			richness = Nphot_inner
 		self.__dict__.update(ez.create(keys,locals()))
 
-		# Plot
+                # Plot
+                if plot_gr == True:
+                        fig,ax = mp.subplots()
+                        ax.plot(rmags,gmags-rmags,'ko',alpha=.8)
+                        ax.plot(spec['rmags'][mems],color_data[mems],'co')
+                        ax.axhline(RS_color,color='r')
+                        ax.axhline(RS_color+RS_sigma,color='b')
+                        ax.axhline(RS_color-RS_sigma,color='b')
+                        ax.set_xlim(13,19)
+                        ax.set_ylim(0,1.3)
+                        ax.set_xlabel('Apparent R Mag',fontsize=16)
+                        ax.set_ylabel('App G Mag - App R Mag',fontsize=16)
+                        ax.set_title('Color-Mag Diagram, Cluster '+str(haloid))
+                        fig.savefig('colormag_'+str(haloid)+'.png',bbox_inches='tight')
+                        mp.close(fig)
+
 		if plot_sky == True:
 			fig,ax = mp.subplots()
 			ax.plot(all['ra'],all['dec'],'ko')
@@ -199,9 +201,23 @@ class RICHNESS(object):
 			ax.plot(all['ra'][red_outer],all['dec'][red_outer],'yo')
 			ax.plot(clus_ra,clus_dec,'co',markersize=9)
 			ax.set_xlabel('RA',fontsize=15)
-			ax.set_ylabel('Dec.',fontisze=15)
+			ax.set_ylabel('Dec.',fontsize=15)
 			ax.set_title('Richness Annuli for Halo '+str(haloid))
 			fig.savefig('skyplot_'+str(haloid)+'.png',bbox_inches='tight')
+			mp.close(fig)
+
+		if plot_phase == True:
+			fig,ax = mp.subplots()
+			ax.plot(spec['rdata'],spec['vdata'],'ko')
+			ax.plot(spec['rdata'][mems],spec['vdata'][mems],'co')
+			bcg = np.where(spec['abs_rmags']==spec['abs_rmags'][mems].min())[0][0]
+			ax.plot(spec['rdata'][bcg],spec['vdata'][bcg],'ro')
+			ax.set_xlim(0,5)
+			ax.set_ylim(-5000,5000)
+			ax.set_xlabel('Radius (Mpc)',fontsize=15)
+			ax.set_ylabel('Velocity (km/s)',fontsize=15)
+			ax.set_title('phasespace haloid '+str(haloid))
+			fig.savefig('phasespace_'+str(haloid)+'.png',bbox_inches='tight')
 			mp.close(fig)
 
 		return richness

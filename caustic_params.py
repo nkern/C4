@@ -9,7 +9,7 @@ import time
 self_stack	= False				# Run self-stack or bin-stack
 scale_data	= False				# Scale to-be-stacked phase space radial data by r200 if True
 lightcone	= True				# If True, working on Henriques lightcone, if False, working on Guo data cube
-write_data 	= False				# Write Data to Result directories if True
+write_data 	= True				# Write Data to Result directories if True
 init_shiftgap   = False                         # Run a shiftgapper on individual LOS phase space before it gets stacked
 shiftgapper     = True                          # Run a Shiftgapper Technique on Phase Space Before Caustic Technique
 edge_int_remove = True                          # Run Inflection Interloper Removal Technique
@@ -24,15 +24,15 @@ cent_offset	= None                          # Either 'r', 'v', 'full', or None.
 
 ### CONSTANTS ###
 # Run Dependent
-ens_num         = 20				# Number of Ensembles to build and solve for IN THIS RUN
+ens_num         = 3220				# Number of Ensembles to build and solve for IN THIS RUN
 gal_num         = 100				# Number of galaxies taken per line of sight
-line_num        = 20				# Number of lines of sight to stack over
-halo_num	= 400				# Total number of halos to work with
+line_num        = 1				# Number of lines of sight to stack over
+halo_num	= 3220				# Total number of halos to work with
 method_num      = 0                             # Ensemble Build Method Number
 cell_num        = 0                             # Cell Number ID corresponding to given gal_num & line_num geometry in a Run Table
-table_num       = 2                             # Table Re-Run Version  
-data_loc        = 'MassRich/TRUTH_CAUSTIC_C4/gal_subsample'			# Alternative data_loc, either None or String
-write_loc       = 'run0'			# Alternative write_loc, either None or String
+table_num       = 0                             # Table Re-Run Version  
+data_loc        = 'MassRich/TRUTH_CAUSTIC'			# Alternative data_loc, either None or String
+write_loc       = 'individual_bcg'			# Alternative write_loc, either None or String
 
 # Other Techniques
 mm_est		= 'richness'			# "Mass Mix Estimator" - What scaling technique to get mass scatter? 'richness', 'vel_disp', 'luminosity', 

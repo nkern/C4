@@ -119,7 +119,7 @@ class CFOUR(object):
 		vdata = self.c * (gal_z - clus_z) / (1 + clus_z)
 
 		# Append to PS
-		PS.append( {'Rdata':rdata,'Vdata':vdata,'G_Mags':gal_gmags,'R_Mags':gal_rmags,'I_Mags':gal_imags,'HaloID':haloid,'R200':clus_r200,'HVD':clus_hvd,'M200':clus_m200} )
+		PS.append( {'Rdata':rdata,'Vdata':vdata,'G_Mags':gal_gmags,'R_Mags':gal_rmags,'I_Mags':gal_imags,'HaloID':haloid,'R200':clus_r200,'HVD':clus_hvd,'M200':clus_m200,'Z':clus_z} )
 
 
         def load_project_append_bootstrap(self,HaloID,M200,R200,HVD,Z,Halo_P,Halo_V,PS,weight):
@@ -179,65 +179,45 @@ class CFOUR(object):
 #		return HaloID,HaloData,sort
 
 
-	def richness_est(self,rdata,vdata,gmags,rmags,imags,shiftgap=True):
-		''' Richness estimator, magnitudes should be absolute mags'''
-
-		# Rough Cut at < 7 Mpc and +/- 5000 km/s
-		rmag_limit = -19.0
-		cut = np.where((rdata < 7) & (np.abs(vdata) < 5000) & (rmags < rmag_limit))[0]
-		rdata = rdata[cut]
-		vdata = vdata[cut]
-		gmags = gmags[cut]
-		rmags = rmags[cut]
-		imags = imags[cut]
-
-		# Shiftgapper for Interlopers
-		if shiftgap == True:
-			clus_data = np.vstack([rdata,vdata,gmags,rmags,imags])
-			clus_data = self.U.C.shiftgapper(clus_data.T).T
-			rdata,vdata,gmags,rmags,imags = clus_data
-
-		# Take rough virial radius measurement
-		r_vir = np.exp(-1.86)*len(np.where((rmags < -19.55) & (rdata < 1.0) & (np.abs(vdata) < 3500))[0])**0.51
-
-		# Measure Velocity Dispersion of all galaxies within 1.25 * r_vir
-		vel_disp = astats.biweight_midvariance(vdata[np.where(rdata < (r_vir*1.25))])
-
-		# Find color of Red Sequence, measured as SDSS_g-SDSS_r vs. SDSS_r absolute magnitude
-		# This is almost always around an abs_gmags-abs_rmags ~ 0.8
-		color_data = gmags-rmags
-		color_cut = np.where((color_data<1.0)&(color_data>0.65))[0]
-		size = len(color_cut)
-		RS_color = astats.biweight_location(color_data[color_cut]) 
-		RS_sigma = astats.biweight_midvariance(color_data[color_cut])
-	
-		# Measure Richness and Background
-		signal = len(np.where((np.abs(vdata) < vel_disp*2)&(rdata <= r_vir))[0])
-		background = len(np.where((np.abs(vdata) < vel_disp*2)&(rdata <= r_vir*6)&(rdata >= r_vir*5)&(color_data<(RS_color+RS_sigma))&(color_data>(RS_color-RS_sigma)))[0])
-
-		richness = signal - background
-		return richness
-
-
-	def vel_disp_est(self,*args,**kwargs):
-		''' Velocity Dispersion estimator combined with mass scatter calculation for millennium galaxy clusters '''
-		pass
-
-
-	def luminosity_est(self,*args,**kwargs):
-		''' Galaxy Luminosity estimator combined with mass scatter calculation for millennium galaxy clusters '''
-		pass
-
-
-
-
-
-
-
-
-
-
-
+#	Outdated Richness Estimator, see c4_richness.py for new one
+#	def richness_est(self,rdata,vdata,gmags,rmags,imags,shiftgap=True):
+#		''' Richness estimator, magnitudes should be absolute mags'''
+#
+#		# Rough Cut at < 7 Mpc and +/- 5000 km/s
+#		rmag_limit = -19.0
+#		cut = np.where((rdata < 7) & (np.abs(vdata) < 5000) & (rmags < rmag_limit))[0]
+#		rdata = rdata[cut]
+#		vdata = vdata[cut]
+#		gmags = gmags[cut]
+#		rmags = rmags[cut]
+#		imags = imags[cut]
+#
+#		# Shiftgapper for Interlopers
+#		if shiftgap == True:
+#			clus_data = np.vstack([rdata,vdata,gmags,rmags,imags])
+#			clus_data = self.U.C.shiftgapper(clus_data.T).T
+#			rdata,vdata,gmags,rmags,imags = clus_data
+#
+#		# Take rough virial radius measurement
+#		r_vir = np.exp(-1.86)*len(np.where((rmags < -19.55) & (rdata < 1.0) & (np.abs(vdata) < 3500))[0])**0.51
+#
+#		# Measure Velocity Dispersion of all galaxies within 1.25 * r_vir
+#		vel_disp = astats.biweight_midvariance(vdata[np.where(rdata < (r_vir*1.25))])
+#
+#		# Find color of Red Sequence, measured as SDSS_g-SDSS_r vs. SDSS_r absolute magnitude
+#		# This is almost always around an abs_gmags-abs_rmags ~ 0.8
+#		color_data = gmags-rmags
+#		color_cut = np.where((color_data<1.0)&(color_data>0.65))[0]
+#		size = len(color_cut)
+#		RS_color = astats.biweight_location(color_data[color_cut]) 
+#		RS_sigma = astats.biweight_midvariance(color_data[color_cut])
+#	
+#		# Measure Richness and Background
+#		signal = len(np.where((np.abs(vdata) < vel_disp*2)&(rdata <= r_vir))[0])
+#		background = len(np.where((np.abs(vdata) < vel_disp*2)&(rdata <= r_vir*6)&(rdata >= r_vir*5)&(color_data<(RS_color+RS_sigma))&(color_data>(RS_color-RS_sigma)))[0])
+#
+#		richness = signal - background
+#		return richness
 
 
 
