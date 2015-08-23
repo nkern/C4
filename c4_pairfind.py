@@ -48,7 +48,7 @@ def pair_find(rdata,vdata):
         d3_chi = sum((bins-double3)**2)
         s_chi = sum((bins-single)**2)
 
-        # If any double model chi_sq is < s_chi*3, it is likely a pair
+        # If any double model chi_sq is < s_chi*thresh, it is likely a pair
         thresh = 2
         if d1_chi < s_chi*thresh or d2_chi < s_chi*thresh or d3_chi < s_chi*thresh:
                 pair = True

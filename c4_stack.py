@@ -44,72 +44,26 @@ U.print_separation('## Running c4_stack.py')
 names = ['run_time','','run_num','gal_num','line_num','cell_num','ens_num','halo_num','method_num','avg_meth','','write_data','scale_data','run_los','mirror','new_halo_cent','init_shiftgap','shiftgapper','edge_int_remove','bootstrap','bootstrap_num','bootstrap_rep','','data_set','data_loc','write_loc','root']
 U.print_varibs(names,varib)
 
-## Load Halo Data
-U.print_separation('# ...Loading Halos',type=1)
-HaloID,HaloData = C4.load_halos(sort=True,avg_centers=True)
-RA,DEC,Z,M200,RVIR,HVD,N200,SINGLE,SUB,NC4,Nspec = HaloData
+## Load halos from halos.fits
+halos = fits.open(data_loc+'/halos.fits')[1].data
+keys = ['HaloID','RA','DEC','Z','HVD','N200','RVIR','SINGLE','SUB','KEEP','NC4','M200','Nspec','PAIR_AVG','CATA_FAIL']
+for i in keys:
+	try: globals()[i] = halos[i]
+	except: globals()[i] = np.zeros(len(halos))
+RA = halos['RA_BCG']
+DEC = halos['DEC_BCG']
+Z = halos['Z_BIWT']
+HaloID = halos['orig_order']
 
-# Create Dummy M200
-M200 = np.zeros(len(RA))
-
-# Load in Halo Data from previously written file, or write file if doesn't exist
-try:
-	try:
-		f = open(root+'/C4/'+data_loc+'/'+write_loc+'/halo_arrays.pkl','rb')
-		input = pkl.Unpickler(f)	
-		run_dict = input.load()
-		globals().update(run_dict)
-		f.close()
-	except:
-                f = open(root+'/C4/'+data_loc+'/halo_arrays.pkl','rb')
-                input = pkl.Unpickler(f)        
-                run_dict = input.load()
-                globals().update(run_dict)
-                f.close()
-
-except IOError:
-	try:
-		f = open(root+'/C4/'+data_loc+'/halo_arrays.pkl','wb')	
-		output = pkl.Pickler(f)
-		run_dict = {'HaloID':HaloID,'RA':RA,'DEC':DEC,'Z':Z,'HVD':HVD,'N200':N200,'RVIR':RVIR,'SINGLE':SINGLE,'SUB':SUB,'NC4':NC4,'M200':M200,'Nspec':Nspec}
-		output.dump(run_dict)
-		f.close()
-	except IOError:
-		pass
-
-## Selection Function
-# 2650 clusters for TRUTH_CASUTIC
-select = False
-if select == True:
-	cut = np.where((N200>10)&(Z>0.05)&(Z<.13)&(Nspec>5))[0]
-	for i in run_dict.keys():
-		run_dict[i] = run_dict[i][cut]
-	globals().update(run_dict)
-
-
-## Load in Chris' C4 Data
+## Load in Chris' C4 Data, not yours
 chris_data = True
 C4.chris_data = chris_data
-C4.chris_data_root = '/nfs/christoq_ls/MILLENNIUM/Henriques/TRUTH_CAUSTIC'
-#C4.chris_data_root = '/nfs/christoq_ls/C4/sdssdr12'
-load_chris_halos = True
-if load_chris_halos == True:
-	halos = fits.open(root+'/C4/'+data_loc+'/halos.fits')[1].data
-	HaloID = halos['orig_order']
-	RA = halos['ra_bcg']
-	DEC = halos['dec_bcg']
-	Z = halos['z_biwt']
-	Nspec = halos['Nspec']
-	N200 = halos['N200']
-	HVD = halos['HVD']
-	RVIR = halos['RVIR']
-	SINGLE = halos['single']
-	SUB = halos['sub']
-	NC4 = halos['nc4']
-	M200 = np.zeros(len(N200))	
-
-	#c4_caustics = fits.open(C4.chris_data_root+'/caustics_geom/c4_caustics.fits')[1].data[halos['orig_order']]
-	#M200 = c4_caustics['m200']
+if data_loc[-2:] == 'IC':
+	C4.chris_data_root = '/nfs/christoq_ls/MILLENNIUM/Henriques/TRUTH_CAUSTIC'
+elif data_loc[-2:] == 'C4':
+	C4.chris_data_root = '/nfs/christoq_ls/MILLENNIUM/Henriques/TRUTH_CAUSTIC_C4'
+elif data_loc[-2:] == '12':
+	C4.chris_data_root = '/nfs/christoq_ls/C4/sdssdr12'
 
 ## Bin on N200
 bin = False
@@ -127,28 +81,6 @@ if bin == True:
 	NC4 = NC4[sort]
 	M200 = M200[sort]
 	Nspec = Nspec[sort]
-
-## Cut down to X Nspec
-cut_nspec = False
-if cut_nspec == True:
-	cut_num = 5
-	cut = np.where((Nspec > cut_num)&(N200!=0)&(M200!=0)&(SUB<4))[0]
-	HaloID = HaloID[cut][:halo_num]
-        RA = RA[cut][:halo_num]
-        DEC = DEC[cut][:halo_num]
-        Z = Z[cut][:halo_num]
-        HVD = HVD[cut][:halo_num]
-        N200 = N200[cut][:halo_num]
-        RVIR = RVIR[cut][:halo_num]
-        SINGLE = SINGLE[cut][:halo_num]
-        SUB = SUB[cut][:halo_num]
-        NC4 = NC4[cut][:halo_num]
-        M200 = M200[cut][:halo_num]
-        Nspec = Nspec[cut][:halo_num]
-
-	X = np.log10(N200)
-	Y = np.log10(M200)
-
 
 # Initialize Multi-Ensemble Array to hold resultant data
 STACK_DATA = []
@@ -169,7 +101,7 @@ for j in range(ens_num):
 	PS = Data()
 
 	# Iterate through lines of sight
-	U.print_separation('## Working on Ensemble '+str(j),type=1)
+	U.print_separation('## Working on Ensemble #'+str(j)+' in Set, #'+str(k)+' Overall',type=1)
 	for l in range(line_num):
 		print '...Loading galaxy data and projecting line of sight #'+str(l)
 
@@ -177,12 +109,16 @@ for j in range(ens_num):
 
 	PS.to_array(['Rdata','Vdata','HaloID','R200','HVD','Z','M200','G_mags','R_Mags','I_Mags'])
 
-	# Check for empty-core clusters, skip those b/c shiftgapper can't handle them
-	if np.where((PS.Rdata<0.5)&(np.abs(PS.Vdata)<3000))[0].size == 0:
-		STACK_DATA.append( {} )
+	# Check for empty-core clusters when doing individual clusters, skip those b/c shiftgapper can't handle them
+	# When stacking, make sure to not stack these! Make a selection function for all N200 > 0 or something
+	if line_num == 1 and np.where((PS.Rdata[0]<PS.R200)&(np.abs(PS.Vdata[0])<3000))[0].size < 5:
+		dummy = {}
+		for i in  stack_data.keys():
+			dummy[i] = np.array([0]*len(stack_data[i]))
+		STACK_DATA.append( dummy )
 		print ''
 		print '-'*40
-		print 'EMPTY CORE CLUSTER'
+		print 'EMPTY CORE CLUSTER [Ngal(r<RVIR) < 5]'
 		print '-'*40
 		print ''
 		continue
@@ -228,10 +164,11 @@ if make_arrays == True:
 	EDGESURF,CAUSURF = np.array(EDGESURF),np.array(CAUSURF)
 	ENS_R,ENS_V = np.array(ENS_R),np.array(ENS_V)
 	BINN200 = np.array(map(np.median,N200[:halo_num].reshape(ens_num,halo_num/ens_num)))
+	BINR200 = np.array(map(np.median,RVIR[:halo_num].reshape(ens_num,halo_num/ens_num)))
         BINHVD = np.array(map(np.median,HVD[:halo_num].reshape(ens_num,halo_num/ens_num)))
 	BINNSPEC = np.array(map(np.median,Nspec[:halo_num].reshape(ens_num,halo_num/ens_num)))
 
-	d = {'M200':M200,'N200':N200,'RVIR':RVIR,'HVD':HVD,'Nspec':Nspec,'BINN200':BINN200,'BINNSPEC':BINNSPEC,'EDGEMASS':EDGEMASS,'CAUMASS':CAUMASS,'EDGEMASS_EST':EDGEMASS_EST,'CAUMASS_EST':CAUMASS_EST,'R200_EST':R200_EST,'EDGESURF':EDGESURF,'CAUSURF':CAUSURF,'x_range':S.C.x_range,'ENS_R':ENS_R,'ENS_V':ENS_V,'ENS_HVD':ENS_HVD}
+	d = {'M200':M200,'N200':N200,'RVIR':RVIR,'HVD':HVD,'Nspec':Nspec,'BINN200':BINN200,'BINNSPEC':BINNSPEC,'BINR200':BINR200,'EDGEMASS':EDGEMASS,'CAUMASS':CAUMASS,'EDGEMASS_EST':EDGEMASS_EST,'CAUMASS_EST':CAUMASS_EST,'R200_EST':R200_EST,'EDGESURF':EDGESURF,'CAUSURF':CAUSURF,'x_range':S.C.x_range,'ENS_R':ENS_R,'ENS_V':ENS_V,'ENS_HVD':ENS_HVD}
 
 	f = open('C4Stack_Ngal'+str(gal_num)+'_Nclus'+str(line_num)+'_Nens'+str(ens_num)+'.pkl','wb')
 	output = pkl.Pickler(f)

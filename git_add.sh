@@ -8,4 +8,5 @@ git add C4_Richnesses.tab
 git add c4_pbs.sh
 git add c4_richness.py
 git add fits_table.py
-git add MassRich/MassRich.py
+git add MassRich/CatPrep.py
+git add c4_pairfind.py
